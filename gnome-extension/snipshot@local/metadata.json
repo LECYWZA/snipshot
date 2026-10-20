@@ -1,0 +1,7 @@
+{
+  "uuid": "snipshot@local",
+  "name": "SnipShot Shot Service",
+  "description": "Screenshot D-Bus service for SnipShot (avoids portal permission dialog)",
+  "shell-version": ["50"],
+  "version": 1
+}

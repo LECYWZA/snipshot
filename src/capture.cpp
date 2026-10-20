@@ -11,10 +11,37 @@
 #include <QFile>
 #include <QUrl>
 #include <QDebug>
+#include <QFileInfo>
+#include <QDBusMessage>
 
 Capture::Capture(QObject* parent) : QObject(parent) {}
 
+bool Capture::tryExtensionShot() {
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected())
+        return false;
+    QDBusMessage msg = QDBusMessage::createMethodCall(
+        "org.snipshot.Shot", "/org/snipshot/Shot", "org.snipshot.Shot", "Take");
+    msg << false;
+    const QDBusMessage reply = bus.call(msg, QDBus::Block, 4000);
+    if (reply.type() != QDBusMessage::ReplyMessage)
+        return false;
+    const QString path = reply.arguments().value(0).toString();
+    if (path.isEmpty() || !QFileInfo::exists(path))
+        return false;
+    QImage img(path);
+    if (img.isNull())
+        return false;
+    qInfo() << "扩展截图:" << img.size() << path;
+    emit captured(img);
+    return true;
+}
+
 void Capture::captureScreen() {
+    // 优先 GNOME Shell 扩展（无授权框/无闪光）；没有扩展再走 portal
+    if (tryExtensionShot())
+        return;
+
     // Linux 下统一走 xdg-desktop-portal。
     // 即使本程序跑在 Xwayland(xcb) 上，也不能用 grabWindow：Xwayland 的
     // root window 里只有 X11 客户窗口，截不到 Wayland 原生窗口，会黑屏。

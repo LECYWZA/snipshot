@@ -22,6 +22,7 @@ private slots:
     void onPortalResponse(uint code, const QVariantMap& results);
 
 private:
+    bool tryExtensionShot();
     void captureX11();
     QString m_requestPath;
 };
