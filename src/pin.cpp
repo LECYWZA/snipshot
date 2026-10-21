@@ -7,6 +7,7 @@
 
 #include <QPainter>
 #include <QMouseEvent>
+#include <QWheelEvent>
 #include <QKeyEvent>
 #include <QGuiApplication>
 #include <QScreen>
@@ -129,6 +130,7 @@ PinWindow::PinWindow(const QImage& img, const QPoint& pos, QWidget* parent)
     if (d <= 0)
         d = 1.0;
     const QSize logical(qRound(img.width() / d), qRound(img.height() / d));
+    m_baseLogical = logical;
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
     setAttribute(Qt::WA_DeleteOnClose);
     setFixedSize(logical);
@@ -159,6 +161,19 @@ void PinWindow::mouseMoveEvent(QMouseEvent* e) {
 
 void PinWindow::mouseDoubleClickEvent(QMouseEvent*) {
     close();
+}
+
+void PinWindow::wheelEvent(QWheelEvent* e) {
+    const int d = e->angleDelta().y();
+    if (d == 0) {
+        QWidget::wheelEvent(e);
+        return;
+    }
+    m_zoom = qBound(0.2, m_zoom * (d > 0 ? 1.1 : 0.9), 8.0);
+    setFixedSize(qMax(20, qRound(m_baseLogical.width() * m_zoom)),
+                 qMax(20, qRound(m_baseLogical.height() * m_zoom)));
+    update();
+    e->accept();
 }
 
 void PinWindow::keyPressEvent(QKeyEvent* e) {
@@ -277,7 +292,7 @@ void PinWindow::contextMenuEvent(QContextMenuEvent* e) {
     menu.exec(e->globalPos());
 }
 
-// ---------------- AI 结果贴图：固定贴出，完成后可编辑文本 ----------------
+// ---------------- AI 结果贴图：像贴图一样显示选区原图 + 原位文字 ----------------
 
 TextPinWindow::TextPinWindow(const QImage& img, const QRect& logicalRect, const QString& mode,
                              QWidget* parent)
@@ -286,51 +301,67 @@ TextPinWindow::TextPinWindow(const QImage& img, const QRect& logicalRect, const 
     if (d <= 0)
         d = 1.0;
     QSize logical(qRound(img.width() / d), qRound(img.height() / d));
-    if (logical.width() < 380) logical.setWidth(380);
-    if (logical.height() < 220) logical.setHeight(220);
-    m_logical = logical;
+    // 以选区实际大小为准，不再撑成 380×220 的大黑框
+    logical.setWidth(qMax(140, logical.width()));
+    logical.setHeight(qMax(56, logical.height()));
+    m_baseLogical = logical;
+    m_baseFont = qBound(11, logical.height() / 8, 22);
     m_border = Settings::load().pinBorder;
 
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowTitle(mode == QStringLiteral("translate") ? QStringLiteral("翻译")
                                                       : QStringLiteral("文字提取"));
-    setFixedSize(m_logical);
+    setFixedSize(logical);
     if (logicalRect.isValid())
         move(logicalRect.topLeft());
 
     auto* lay = new QVBoxLayout(this);
-    lay->setContentsMargins(6, 6, 6, 6);
-    lay->setSpacing(4);
+    lay->setContentsMargins(0, 0, 0, 0);
+    lay->setSpacing(0);
 
+    // 细窄工具条：只做拖动和复制/关闭，背景半透明，下面是原图
     auto* header = new QWidget;
-    header->setStyleSheet("QWidget { background: rgba(0,0,0,140); }");
+    header->setFixedHeight(18);
+    header->setStyleSheet("QWidget { background: rgba(0,0,0,70); }");
     auto* hl = new QHBoxLayout(header);
-    hl->setContentsMargins(4, 2, 4, 2);
-    auto* title = new QLabel(mode == QStringLiteral("translate") ? QStringLiteral("翻译")
-                                                                : QStringLiteral("文字提取"));
-    title->setStyleSheet("QLabel { color:#9fd8ff; font-weight:bold; }");
+    hl->setContentsMargins(4, 0, 2, 0);
+    hl->setSpacing(2);
+    m_title = new DragLabel(mode == QStringLiteral("translate") ? QStringLiteral("翻译")
+                                                               : QStringLiteral("文字提取"));
+    m_title->setStyleSheet("QLabel { color:#dff4ff; font-size:10px; padding-left:2px; }");
     auto* copyBtn = new QPushButton(QStringLiteral("复制"));
+    copyBtn->setFlat(true);
+    copyBtn->setFixedSize(34, 16);
+    copyBtn->setStyleSheet("QPushButton { background: rgba(255,255,255,26); border:none; "
+                           "color:#fff; font-size:10px; } "
+                           "QPushButton:hover { background: rgba(255,255,255,70); }");
     auto* closeBtn = new QPushButton(QStringLiteral("×"));
-    copyBtn->setFixedWidth(52);
-    closeBtn->setFixedWidth(30);
-    hl->addWidget(title);
+    closeBtn->setFlat(true);
+    closeBtn->setFixedSize(16, 16);
+    closeBtn->setStyleSheet("QPushButton { background: rgba(255,255,255,26); border:none; "
+                            "color:#fff; font-size:12px; } "
+                            "QPushButton:hover { background: rgba(255,80,80,160); }");
+    hl->addWidget(m_title);
     hl->addStretch();
     hl->addWidget(copyBtn);
     hl->addWidget(closeBtn);
-    // 标题区拖动
-    title->installEventFilter(this);
+    header->installEventFilter(this);
     lay->addWidget(header);
 
     m_edit = new QTextEdit;
     m_edit->setReadOnly(true);
+    m_edit->setFrameShape(QFrame::NoFrame);
     m_edit->setPlaceholderText(mode == QStringLiteral("translate")
                                    ? QStringLiteral("翻译中…")
                                    : QStringLiteral("识别中…"));
+    m_edit->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_edit->setStyleSheet(
-        "QTextEdit { background: rgba(0,0,0,150); color:#f2f2f2; border:1px solid #00a0ff; "
+        "QTextEdit { background: rgba(0,0,0,95); color:#f4f4f4; border:none; padding:4px; "
         "selection-background-color:#0078d7; }");
+    m_edit->setFont(QFont(QStringLiteral("Sans"), m_baseFont));
     m_edit->installEventFilter(this);
+    m_edit->viewport()->installEventFilter(this);
     lay->addWidget(m_edit, 1);
 
     connect(copyBtn, &QPushButton::clicked, this, [this]() {
@@ -356,21 +387,35 @@ TextPinWindow::~TextPinWindow() = default;
 
 void TextPinWindow::setResultText(const QString& text) {
     m_done = true;
+    if (m_title)
+        m_title->setText(m_mode == QStringLiteral("translate") ? QStringLiteral("翻译")
+                                                               : QStringLiteral("文字提取"));
     m_edit->setReadOnly(false);
     m_edit->setPlainText(text);
     m_edit->moveCursor(QTextCursor::End);
     m_edit->setFocus();
     raise();
     activateWindow();
+    update();
+}
+
+void TextPinWindow::applyZoom() {
+    const QSize sz(qMax(60, qRound(m_baseLogical.width() * m_zoom)),
+                   qMax(30, qRound(m_baseLogical.height() * m_zoom)));
+    setFixedSize(sz);
+    QFont f = m_edit->font();
+    f.setPixelSize(qMax(8, qRound(m_baseFont * m_zoom)));
+    m_edit->setFont(f);
+    update();
 }
 
 void TextPinWindow::paintEvent(QPaintEvent*) {
     QPainter p(this);
+    // 原图铺满窗口，文字区域半透明叠在上面；不再额外压一层大黑底
     p.drawImage(rect(), m_img);
-    p.fillRect(rect(), m_border ? QColor(0, 0, 0, 70) : QColor(0, 0, 0, 50));
     if (m_border) {
-        p.setPen(QPen(QColor(0, 160, 255), 2));
-        p.drawRect(rect().adjusted(1, 1, -2, -2));
+        p.setPen(QPen(QColor(0, 160, 255), 1));
+        p.drawRect(rect().adjusted(0, 0, -1, -1));
     }
 }
 
@@ -382,21 +427,45 @@ void TextPinWindow::keyPressEvent(QKeyEvent* e) {
     QWidget::keyPressEvent(e);
 }
 
-bool TextPinWindow::eventFilter(QObject* o, QEvent* e) {
-    if (o == m_edit && e->type() == QEvent::KeyPress) {
-        auto* ke = static_cast<QKeyEvent*>(e);
-        if (ke->key() == Qt::Key_Escape) {
-            close();
-            return true;
-        }
+void TextPinWindow::wheelEvent(QWheelEvent* e) {
+    const int d = e->angleDelta().y();
+    if (d == 0) {
+        QWidget::wheelEvent(e);
+        return;
     }
-    if (o == m_edit || (o && o->inherits("QLabel"))) {
-        if (e->type() == QEvent::MouseButtonPress) {
-            auto* me = static_cast<QMouseEvent*>(e);
-            if (o != m_edit && me->button() == Qt::LeftButton && windowHandle()) {
-                windowHandle()->startSystemMove();
+    m_zoom = qBound(0.3, m_zoom * (d > 0 ? 1.1 : 0.9), 6.0);
+    applyZoom();
+    e->accept();
+}
+
+bool TextPinWindow::eventFilter(QObject* o, QEvent* e) {
+    if (o == m_edit || (m_edit && o == m_edit->viewport())) {
+        if (e->type() == QEvent::KeyPress) {
+            auto* ke = static_cast<QKeyEvent*>(e);
+            if (ke->key() == Qt::Key_Escape) {
+                close();
                 return true;
             }
+        } else if (e->type() == QEvent::Wheel) {
+            auto* we = static_cast<QWheelEvent*>(e);
+            if (we->modifiers() & Qt::ControlModifier) {
+                const int d = we->angleDelta().y();
+                if (d != 0) {
+                    m_zoom = qBound(0.3, m_zoom * (d > 0 ? 1.1 : 0.9), 6.0);
+                    applyZoom();
+                    return true;
+                }
+            }
+        }
+    }
+    if (e->type() == QEvent::MouseButtonPress && m_title) {
+        auto* me = static_cast<QMouseEvent*>(e);
+        QWidget* w = qobject_cast<QWidget*>(o);
+        if (me->button() == Qt::LeftButton &&
+            (w == m_title || w == m_title->parentWidget())) {
+            if (windowHandle())
+                windowHandle()->startSystemMove();
+            return true;
         }
     }
     return QWidget::eventFilter(o, e);

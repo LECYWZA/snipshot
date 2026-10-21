@@ -9,6 +9,7 @@
 #include <QSize>
 
 class QTextEdit;
+class QLabel;
 class Ai;
 
 // 无边框置顶贴图窗（Snipaste 的"贴图"）
@@ -24,9 +25,12 @@ protected:
     void mouseDoubleClickEvent(QMouseEvent* e) override;
     void keyPressEvent(QKeyEvent* e) override;
     void contextMenuEvent(QContextMenuEvent* e) override;
+    void wheelEvent(QWheelEvent* e) override;
 
 private:
     QImage m_img;
+    QSize m_baseLogical;
+    qreal m_zoom = 1.0;
     QPoint m_dragOffset;
     bool m_dragging = false;
     QString m_savedPath;
@@ -45,13 +49,18 @@ protected:
     void paintEvent(QPaintEvent* e) override;
     void keyPressEvent(QKeyEvent* e) override;
     void contextMenuEvent(QContextMenuEvent* e) override;
+    void wheelEvent(QWheelEvent* e) override;
     bool eventFilter(QObject* o, QEvent* e) override;
 
 private:
     void setResultText(const QString& text);
+    void applyZoom();
 
     QImage m_img;
-    QSize m_logical;
+    QSize m_baseLogical;
+    qreal m_zoom = 1.0;
+    int m_baseFont = 14;
+    QLabel* m_title = nullptr;
     QString m_mode;
     bool m_border = true;
     bool m_done = false;
