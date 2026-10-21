@@ -1,6 +1,7 @@
 #include "hotkeys.h"
 
 #include <QCoreApplication>
+#include <algorithm>
 #include <QProcess>
 #include <QRegularExpression>
 #include <QDebug>
@@ -12,26 +13,40 @@ QString Hotkeys::executablePath() {
     return QCoreApplication::applicationFilePath();
 }
 
-static QString normalizeBinding(QString b) {
-    // GNOME/GTK accelerator 里 Alt+Q 的 Q 是独立 keyval，和物理 Alt+q 不匹配。
-    // 单个字母统一转小写；F1/Print 等保持原样。
-    const int pos = b.lastIndexOf('+');
-    if (pos >= 0 && pos + 1 < b.size()) {
-        const QString key = b.mid(pos + 1);
-        if (key.size() == 1 && key[0].isLetter())
-            b = b.left(pos + 1) + key.toLower();
+static QString normalizeBinding(const QString& input) {
+    QString b = input.trimmed();
+    if (b.isEmpty())
+        return b;
+    // 已经是 <Alt>q 形式：只需把单字母 key 转小写
+    if (b.contains('<') || b.contains('>')) {
+        if (b.back().isLetter() && b.back().isUpper())
+            b[b.size() - 1] = b.back().toLower();
+        return b;
     }
-    return b;
-}
-
-static QString upperVariant(const QString& b) {
-    const int pos = b.lastIndexOf('+');
-    if (pos < 0 || pos + 1 >= b.size())
-        return QString();
-    QString key = b.mid(pos + 1);
-    if (key.size() != 1 || !key[0].isLower())
-        return QString();
-    return b.left(pos + 1) + key.toUpper();
+    const QStringList parts = b.split('+', Qt::SkipEmptyParts);
+    if (parts.size() <= 1) {
+        if (b.size() == 1 && b[0].isLetter())
+            b = b.toLower();
+        return b;
+    }
+    QString out;
+    for (int i = 0; i < parts.size() - 1; ++i) {
+        const QString m = parts[i].trimmed().toLower();
+        if (m == QStringLiteral("alt"))
+            out += QStringLiteral("<Alt>");
+        else if (m == QStringLiteral("ctrl") || m == QStringLiteral("control"))
+            out += QStringLiteral("<Ctrl>");
+        else if (m == QStringLiteral("shift"))
+            out += QStringLiteral("<Shift>");
+        else if (m == QStringLiteral("super") || m == QStringLiteral("win") || m == QStringLiteral("meta"))
+            out += QStringLiteral("<Super>");
+        else
+            out += QStringLiteral("<") + parts[i].trimmed() + QStringLiteral(">");
+    }
+    QString key = parts.last().trimmed();
+    if (key.size() == 1 && key[0].isLetter())
+        key = key.toLower();
+    return out + key;
 }
 
 static bool gsettingsSet(const QString& schema, const QString& key, const QString& value) {
@@ -66,23 +81,20 @@ bool Hotkeys::installGnome(const Settings& st) {
         {"snipshot-record",    executablePath() + " --record-toggle",           st.hkRecord},
     };
 
+    // 清掉上一版遗留的 -upper 条目，避免它们抢占/报 grab 失败
+    paths.erase(std::remove_if(paths.begin(), paths.end(),
+                               [](const QString& p) { return p.contains(QStringLiteral("-upper/")); }),
+                paths.end());
+
     bool ok = true;
     for (const Entry& e : entries) {
-        // 同时注册小写和 Shift/CapsLock 下的字母变体，避免实际按键 keysym 不匹配
-        QStringList bindings{normalizeBinding(e.binding)};
-        const QString upper = upperVariant(normalizeBinding(e.binding));
-        if (!upper.isEmpty() && upper != bindings.first())
-            bindings << upper;
-        for (int vi = 0; vi < bindings.size(); ++vi) {
-            const QString name = vi == 0 ? e.name : e.name + "-upper";
-            const QString path = QString(kCustomPrefix) + name + "/";
-            const QString schema = QString("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:") + path;
-            ok = gsettingsSet(schema, "name", name) && ok;
-            ok = gsettingsSet(schema, "command", e.cmd) && ok;
-            ok = gsettingsSet(schema, "binding", bindings[vi]) && ok;
-            if (!paths.contains(path))
-                paths << path;
-        }
+        const QString path = QString(kCustomPrefix) + e.name + "/";
+        const QString schema = QString("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:") + path;
+        ok = gsettingsSet(schema, "name", e.name) && ok;
+        ok = gsettingsSet(schema, "command", e.cmd) && ok;
+        ok = gsettingsSet(schema, "binding", normalizeBinding(e.binding)) && ok;
+        if (!paths.contains(path))
+            paths << path;
     }
     // 更新列表
     QString list = "[";
