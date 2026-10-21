@@ -12,21 +12,21 @@ struct Settings {
     QString hkSnip       = "F1";
     QString hkPin        = "F2";
     QString hkTogglePins = "F3";
-    QString hkTranslate  = "Alt+Q";
-    QString hkOcr        = "Alt+W";
+    QString hkTranslate  = "Alt+q";
+    QString hkOcr        = "Alt+w";
     bool pinBorder       = true;   // 新贴图默认是否显示边框
 
     // 剪贴板管理器
     bool clipboardEnabled = true;
     int  clipboardMax     = 100;
-    QString hkClipboard   = "Alt+V";
+    QString hkClipboard   = "Alt+v";
 
     // 屏幕录制
     bool recordingEnabled = true;
     int  recordFps        = 30;
     bool recordCursor     = true;
     QString recordDir;             // 默认 ~/视频/录屏
-    QString hkRecord      = "Alt+R";
+    QString hkRecord      = "Alt+r";
 
     static Settings load();
     void save() const;

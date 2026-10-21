@@ -12,6 +12,18 @@ QString Hotkeys::executablePath() {
     return QCoreApplication::applicationFilePath();
 }
 
+static QString normalizeBinding(QString b) {
+    // GNOME/GTK accelerator 里 Alt+Q 的 Q 是独立 keyval，和物理 Alt+q 不匹配。
+    // 单个字母统一转小写；F1/Print 等保持原样。
+    const int pos = b.lastIndexOf('+');
+    if (pos >= 0 && pos + 1 < b.size()) {
+        const QString key = b.mid(pos + 1);
+        if (key.size() == 1 && key[0].isLetter())
+            b = b.left(pos + 1) + key.toLower();
+    }
+    return b;
+}
+
 static bool gsettingsSet(const QString& schema, const QString& key, const QString& value) {
     QProcess p;
     p.start("gsettings", {"set", schema, key, value});
@@ -54,7 +66,7 @@ bool Hotkeys::installGnome(const Settings& st) {
         const QString schema = QString("org.gnome.settings-daemon.plugins.media-keys.custom-keybinding:") + path;
         ok = gsettingsSet(schema, "name", e.name) && ok;
         ok = gsettingsSet(schema, "command", e.cmd) && ok;
-        ok = gsettingsSet(schema, "binding", e.binding) && ok;
+        ok = gsettingsSet(schema, "binding", normalizeBinding(e.binding)) && ok;
         if (!paths.contains(path))
             paths << path;
     }
