@@ -376,10 +376,13 @@ void ClipboardManager::syncRegistry() {
             if (!contents.trimmed().isEmpty())
                 addText(contents, fav);
         } else if (mime.startsWith("image/")) {
+            if (m_extLoaded.contains(contents))
+                continue;
             const QString path = extensionCacheDir() + "/" + contents;
             QImage img(path);
             if (!img.isNull())
                 addImage(img, fav);
+            m_extLoaded.insert(contents);
         }
     }
     m_syncing = false;

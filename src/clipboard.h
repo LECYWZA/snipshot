@@ -75,6 +75,7 @@ private:
     QTimer* m_poll = nullptr;
     QString m_registryPath;
     QSet<QString> m_hidden;
+    QSet<QString> m_extLoaded;   // 已处理过的扩展图片，避免每 1.5s 重复解码
     QPointer<ClipboardWindow> m_window;
     bool m_running = false;
     bool m_savePending = false;

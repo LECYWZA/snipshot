@@ -3,6 +3,8 @@
 
 #include <QDBusConnection>
 #include <QDBusMessage>
+#include <QDBusPendingCallWatcher>
+#include <QDBusPendingReply>
 #include <QDBusArgument>
 #include <QVariantMap>
 #include <QDir>
@@ -42,26 +44,26 @@ bool ScreenRecorder::start() {
         "org.gnome.Shell.Screencast",
         "Screencast");
     msg << file << opts;
-    const QDBusMessage reply = bus.call(msg, QDBus::Block, 5000);
-    if (reply.type() == QDBusMessage::ErrorMessage) {
-        emit error(QStringLiteral("录屏启动失败: ") + reply.errorMessage());
-        return false;
-    }
-    const QList<QVariant> args = reply.arguments();
-    bool ok = false;
-    QString used;
-    if (args.size() >= 1)
-        ok = args[0].toBool();
-    if (args.size() >= 2)
-        used = args[1].toString();
-    if (!ok) {
-        emit error(QStringLiteral("GNOME Shell 拒绝了录屏请求"));
-        return false;
-    }
-    m_recording = true;
-    m_file = used.isEmpty() ? file : used;
-    qInfo() << "录屏开始:" << m_file;
-    emit started(m_file);
+    auto* watcher = new QDBusPendingCallWatcher(bus.asyncCall(msg), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, file]() {
+        QDBusPendingReply<bool, QString> reply = *watcher;
+        watcher->deleteLater();
+        if (reply.isError()) {
+            emit error(QStringLiteral("录屏启动失败: ") + reply.error().message());
+            return;
+        }
+        const bool ok = reply.argumentAt<0>();
+        const QString used = reply.argumentAt<1>();
+        if (!ok) {
+            emit error(QStringLiteral("GNOME Shell 拒绝了录屏请求"));
+            return;
+        }
+        m_recording = true;
+        m_file = used.isEmpty() ? file : used;
+        qInfo() << "录屏开始:" << m_file;
+        emit started(m_file);
+    });
     return true;
 }
 
@@ -74,11 +76,17 @@ void ScreenRecorder::stop() {
         "/org/gnome/Shell/Screencast",
         "org.gnome.Shell.Screencast",
         "StopScreencast");
-    const QDBusMessage reply = bus.call(msg, QDBus::Block, 5000);
-    if (reply.type() == QDBusMessage::ErrorMessage)
-        qWarning() << "StopScreencast:" << reply.errorMessage();
     m_recording = false;
-    m_lastFile = m_file;
-    qInfo() << "录屏结束:" << m_lastFile;
-    emit finished(m_lastFile);
+    const QString file = m_file;
+    auto* watcher = new QDBusPendingCallWatcher(bus.asyncCall(msg), this);
+    connect(watcher, &QDBusPendingCallWatcher::finished, this,
+            [this, watcher, file]() {
+        QDBusPendingReply<bool> reply = *watcher;
+        watcher->deleteLater();
+        if (reply.isError())
+            qWarning() << "StopScreencast:" << reply.error().message();
+        m_lastFile = file;
+        qInfo() << "录屏结束:" << m_lastFile;
+        emit finished(m_lastFile);
+    });
 }

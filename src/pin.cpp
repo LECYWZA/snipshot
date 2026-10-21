@@ -133,6 +133,7 @@ PinWindow::PinWindow(const QImage& img, const QPoint& pos, QWidget* parent)
     m_baseLogical = logical;
     setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint);
     setAttribute(Qt::WA_DeleteOnClose);
+    setCursor(Qt::ArrowCursor);
     setFixedSize(logical);
     m_border = Settings::load().pinBorder;
     move(pos);
@@ -360,6 +361,7 @@ TextPinWindow::TextPinWindow(const QImage& img, const QRect& logicalRect, const 
         "QTextEdit { background: rgba(0,0,0,95); color:#f4f4f4; border:none; padding:4px; "
         "selection-background-color:#0078d7; }");
     m_edit->setFont(QFont(QStringLiteral("Sans"), m_baseFont));
+    m_edit->setCursor(Qt::IBeamCursor);
     m_edit->installEventFilter(this);
     m_edit->viewport()->installEventFilter(this);
     lay->addWidget(m_edit, 1);
